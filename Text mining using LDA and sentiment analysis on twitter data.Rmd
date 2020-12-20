@@ -1,0 +1,636 @@
+---
+title: "Text Mining Final Exam code"
+author: "Krishna J"
+date: "16/12/2020"
+output: word_document
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# In the sentiment analysis on twitter data assigment, a csv file was generated with the fetched twitter data on the hashtags chosen #PowerWomen OR  #forbesPowerWomen; reading the same file here as continuation to proceed with topic modelling.
+
+```{r echo=TRUE}
+#Reading the csv file that has twitter data
+pw_data<-data.frame(read.csv("C:/Users/krish/Downloads/forbes_powerfulwomen_data.csv"))
+#number of rows in data
+nrow(pw_data)
+#viewing data
+View(pw_data)
+#column names
+colnames(pw_data)
+#top 6 rows
+head(pw_data$text)
+#type of data
+typeof(pw_data)
+
+```
+
+```{r echo=TRUE}
+#loading text,created fields data to a seperate variable
+pw_text1<- pw_data[,c("text","created")]
+#type
+typeof(pw_text1)
+#unique values of created field
+View(unique(pw_text1$created))
+#splitting 'created' field data which is in timestamp format to date format
+library(stringr)
+pw_text1$created_date<- stringr::str_split_fixed(pw_text1$created," ",2)[,1]
+#view data
+View(pw_text1)
+#view date data which is stored in to created time
+View(pw_text1$created_date)
+pw_text_data<- pw_text1[,c("text","created_date")]
+head(pw_text_data)
+unique(pw_text1$created_date)
+```
+
+Pre-processing data(text field) to perform sentiment analysis
+```{r echo=TRUE}
+#Loading necessary libraries
+library(rtweet)
+library(qdapRegex)
+#remove urls in text field
+pw_text_data$text <-rm_twitter_url(pw_text_data$text)
+head(pw_text_data$text)
+#remove spl chars
+pw_text_data$text <- gsub("[^A-Za-z0-9]", " ",pw_text_data$text)
+head(pw_text_data$text)
+# remove retweet entities
+pw_text_data$text = gsub("(RT|via)((?:\\b\\W*@\\w+)+)", " ", pw_text_data$text)
+head(pw_text_data$text)
+# remove at(@) people
+pw_text_data$text = gsub("@\\w+", " ", pw_text_data$text)
+head(pw_text_data$text)
+# remove punctuation
+pw_text_data$text = gsub("[[:punct:]]", " ", pw_text_data$text)
+head(pw_text_data$text)
+# remove numbers
+pw_text_data$text = gsub("[[:digit:]]", " ", pw_text_data$text)
+head(pw_text_data$text)
+# remove html links
+pw_text_data$text = gsub("http\\w+", " ", pw_text_data$text)
+head(pw_text_data$text)
+# remove unnecessary spaces
+#pw_text_data$text = gsub("[ \t]{2,}", "", pw_text_data$text)
+pw_text_data$text= rm_white(pw_text_data$text)
+head(pw_text_data$text)
+#removes leading and trailing spaces
+pw_text_data$text = gsub("^\\s+|\\s+$", "", pw_text_data$text)
+head(pw_text_data$text)
+#checking row count
+head(pw_text_data)
+View(pw_text_data)
+
+```
+Converting to dataframe
+```{r echo=TRUE}
+#Loading necessary libraries
+library(dplyr)
+#loading pw_text_data in to other variable as a dataframe
+pw<-as.data.frame(pw_text_data)
+colnames(pw)
+nrow(pw)
+View(pw)
+write.csv(pw, "C:/Users/krish/Downloads/forbes_powerfulwomen_processed_data.csv")
+
+```
+
+# Creating corpus and pre processing
+```{r echo=TRUE}
+library(tm)
+pw_corpus <- VCorpus(x = VectorSource(pw_text_data$text))
+#creating a copy of corpus variable
+pw_corpus_pp<-pw_corpus
+##Pre-Processing
+# Remove Numbers
+pw_corpus_pp <- tm_map(x = pw_corpus_pp, FUN = removeNumbers)
+# Transform all letters to lower case
+pw_corpus_pp <- tm_map(pw_corpus_pp, content_transformer(tolower))
+# Remove punctuation
+pw_corpus_pp <- tm_map(x = pw_corpus_pp, FUN = removePunctuation)
+# Remove stop words
+pw_corpus_pp <- tm_map(x = pw_corpus_pp, FUN = removeWords, stopwords())
+
+#for stemming
+library(SnowballC)
+# Stem words in corpus
+pw_corpus_pp <- tm_map(x = pw_corpus_pp, FUN = stemDocument)
+# Remove extra white spaces
+pw_corpus_pp <- tm_map(x = pw_corpus_pp, FUN = stripWhitespace)
+#removing custom stop words
+length(pw_corpus_pp) #1346
+```
+
+
+# Create Document Term Matrix
+```{r echo=TRUE}
+DTM <- DocumentTermMatrix(x=pw_corpus_pp)
+nrow(DTM) 
+#1346
+```
+
+Since the DTM is created from the source data, let us proceed with LDA(linear discriminant analysis) a technique which helps us to identify different topics in the dataset
+###############################################
+1)	Use 2, 6, 10 as the number of topics and create three different LDA models based on these K values
+################################################
+#LDA
+```{r}
+library(topicmodels) #library to perform LDA
+
+#applying lda on the dataset with different values of k (2,6,10)
+#setting seed for reproducibility of the results
+
+
+#a) k=2
+pw_lda_2 <- LDA(DTM, k = 2, control = list(seed = 1234))
+pw_lda_2 #A LDA_VEM topic model with 2 topics.
+
+#b) k=6
+pw_lda_6 <- LDA(DTM, k = 6, control = list(seed = 1234))
+pw_lda_6 #A LDA_VEM topic model with 6 topics.
+
+#c) k=10
+pw_lda_10 <- LDA(DTM, k = 10, control = list(seed = 1234))
+pw_lda_10 #A LDA_VEM topic model with 10 topics.
+
+```
+
+##################################
+2)	Fetch top 15 terms in each topic
+##################################
+
+Since the ask is to fetch words/terms per topic so let us fetch word-topic probabilities based on beta value 
+
+#WORD TOPIC PROBABILITIES
+```{r echo=TRUE}
+#WORD-TOPIC PROBABILITIES  (probability of a term being generated under a particular topic)
+
+#let us do this process for all the 3 different models of different topics considered
+library(tidytext) 
+#a) for two topic lda model case
+pw_topics_2 <- tidy(pw_lda_2, matrix = "beta")  
+View(pw_topics_2)  
+
+#b) for six topic lda model case
+pw_topics_6 <- tidy(pw_lda_6, matrix = "beta")  
+View(pw_topics_6)
+
+#c) for ten topic lda model case
+pw_topics_10 <- tidy(pw_lda_10, matrix = "beta")  
+View(pw_topics_10)
+
+```
+
+#Fetching the top 15 terms under each topic
+```{r echo=TRUE}
+
+library(ggplot2)
+library(dplyr)
+
+#a) 2 topic model
+pw_top_terms_2 <- pw_topics_2 %>%
+  group_by(topic) %>%
+  top_n(15,beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+print("Top 15 terms under each topic with 2 topic model")
+
+head(pw_top_terms_2)
+nrow(pw_top_terms_2) #since two topics and top 15 terms per each topic we get 30 rows here
+
+#b) 6 topic model
+pw_top_terms_6 <- pw_topics_6 %>%
+  group_by(topic) %>%
+  top_n(15,beta) %>%
+  ungroup() %>%
+  arrange(topic,-beta)
+
+head(pw_top_terms_6)
+nrow(pw_top_terms_6) #since six topics and terms with top 15 probability per each topic we need to get 90 rows here but in topic 2 for same probability we got 16 hence 91 terms
+
+#c) 10 topic model
+pw_top_terms_10 <- pw_topics_10 %>%
+  group_by(topic) %>%
+  top_n(15,beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+
+head(pw_top_terms_10)
+nrow(pw_top_terms_10) #since ten topics and  terms with top 15 probability per each topic we need to get 150 rows here but in topic 1,2 for same probability we got 17 rows each hence 154 terms
+```
+
+#Visualizing the top terms per topic in each of 3 model cases
+```{r}
+#a)two topic case
+pw_top_terms_2 %>%
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = TRUE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip()+ggtitle("Visualizing the top 15 most probable terms in 2 topic model")
+
+#b)six topic case
+pw_top_terms_6 %>%
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = TRUE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip()+ggtitle("Visualizing the top 15 most probable terms in 6 topic model")
+
+
+#c)ten topic case
+pw_top_terms_10 %>%
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = TRUE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip()+ggtitle("Visualizing the top 15 most probable terms in 10 topic model")+theme(axis.text.y=element_text(size=6.5))
+```
+###################################
+3)	Detail your observations on the topics of the 3 models
+#################################
+Note: since the words are stemmed to avoid repetition of different forms of same word before DTM is formed, we see terms in stem form/root form.
+a) case of 2 topic model:
+From the visualization above, we can see that there is goog differentiation of terms between topic1 and topic2 with no visible overlap of words. Topic 1 is talking more about power,tighten, around, say, men etc it seems as if its describing more verb/action terms. Topic 2 has more about the hashtag terms forbeswomen, powerwomen, sahleworkzewd ( current president of ethiopia).
+
+b) case of 6 topic model:
+From the second visualization, we see that 
+From plot above, we see some term overlap between few topics like ethiopian,ethiopia ; women,woman; one; list; powerwomen. But still there is some good differentiation each topic wise in terms of the context
+
+c) case of 10 topic model:
+From the third visualization, we see that 
+From plot above, we see some term overlap between few topics like 
+stopwarontigray;women;sahleworkzewd;list;powerwomen etc. But still there is only slight differentiation each topic wise in terms of the context
+
+
+#############################################
+4)	Pick one model for further analysis, out of the above three models, and give your justification 
+############################################
+
+From the above 3 models, I would consider topic 6 model since it is covering extensive contexts with decent differentiation without much overlap. Topic 1 covering about powerwomen hashtag related terms. Topic 2 covering terms related to few key people like sahleworkzawd, elect, zhang, scott, maczenki, kelli etc
+.Topic 3 talking more action terms like say,around,tighten,rememb etc. Similar is the case with other topics.
+
+###################################
+5)	Find out the probability of each topic; comment on the highest probability and your observations in general
+#################################
+```{r}
+
+#from the chunk of code where the word-topic probabitlites were obtained, let us view their probabilites values topic wise in all 3 cases
+
+#by setting filter on each topic and sorting we see highest probability values
+
+# 2 topics model
+View(pw_top_terms_2) 
+#most of the probabilites are within 0.062 for topic1 and within 0.072 for topic 2
+
+#6 topics model
+View(pw_top_terms_6)
+#highest probabilites of each topic has crossed 0.06 and few topics has its probability close to 0.1(10%) like topic 2 and 5 and spread of top probabilites is more consistent among terms in topic 3 and 6. highest probability is seen at 0.107
+
+
+#10 topics model
+View(pw_top_terms_10)
+#by setting filter on each topic and sorting we see highest probability values
+# we see that highest probability is around 0.148 for topic 1 followed by topic 5 and rest all probabilities falling below 0.11
+
+```
+
+#############################33
+6)	Do you still see highest probability for the topic you chose? 
+
+
+# 2 topic mode
+the topic chosen powerwomen has highest probability of 0.057 in topic 2 and forbespowerwomen are having their highest probability as 0.04 in topic 2 which is not the highest probability which is at 0.072
+
+# 6 topic mode
+the topic chosen powerwomen has highest probability of 0.106 in topic 2 and forbespowerwomen are having their highest probability as 0.107 in topic 2 which are top probabilites in 6 topic model
+
+# 10 topic mode
+the topic chosen powerwomen has highest probability of 0.109 in topic 2 and forbespowerwomen are having their highest probability as 0.109 in topic 2 which is not highest out of all the other topics in 10 topic model since highest is around 0.149
+
+############################
+7) sentiment analysis
+###############################
+
+out of all the topics/terms that gave the highest probability out of all the three k values amp is having high probability but it is a non significant term so let us take next highest probable term 'woman' with 0.1466 probability
+
+#Establishing connection with twitter api using authorized developer access
+```{r}
+#Loading necessary libraries
+library(rtweet)
+library(ROAuth)
+library(twitteR)
+library(RCurl)
+library(rtweet)
+#setting twitter authentication
+setup_twitter_oauth('', 
+                      ''
+                    ,access_token='', 
+                    access_secret='')
+
+```
+
+Fetching tweet data using twitter handle on topic Power Women list released by Forbes
+```{r}
+
+
+power_tweets <- searchTwitter("#woman -RT", n = 800,lang='en',since='2020-12-13',until='2020-12-15')
+#coverting list to dataframe
+df_forbes_women <- twListToDF(power_tweets)
+#viewing data
+View(df_forbes_women)
+#viewing created dates in data
+View(unique(df_forbes_women$created))
+#number of rows in data
+nrow(df_forbes_women)
+#writing data to csv file in local
+write.csv(df_forbes_women, "C:/Users/krish/Downloads/woman.csv")
+#reading same file in to r again for sentiment analysis
+pw_data<-data.frame(read.csv("C:/Users/krish/Downloads/woman.csv"))
+#number of rows in data
+nrow(pw_data)
+#viewing data
+View(pw_data)
+#column names
+colnames(pw_data)
+#top 6 rows
+head(pw_data$text)
+#type of data
+typeof(pw_data)
+
+```
+
+```{r}
+#loading text,created fields data to a seperate variable
+pw_text1<- pw_data[,c("text","created")]
+#type
+typeof(pw_text1)
+#unique values of created field
+View(unique(pw_text1$created))
+#splitting 'created' field data which is in timestamp format to date format
+library(stringr)
+pw_text1$created_date<- stringr::str_split_fixed(pw_text1$created," ",2)[,1]
+#view data
+View(pw_text1)
+#view date data which is stored in to created time
+View(pw_text1$created_date)
+pw_text_data<- pw_text1[,c("text","created_date")]
+head(pw_text_data)
+unique(pw_text1$created_date)
+```
+
+Pre-processing data(text field) to perform sentiment analysis
+```{r}
+#Loading necessary libraries
+library(rtweet)
+library(qdapRegex)
+#remove urls in text field
+pw_text_data$text <-rm_twitter_url(pw_text_data$text)
+head(pw_text_data$text)
+#remove spl chars
+pw_text_data$text <- gsub("[^A-Za-z0-9]", " ",pw_text_data$text)
+head(pw_text_data$text)
+# remove retweet entities
+pw_text_data$text = gsub("(RT|via)((?:\\b\\W*@\\w+)+)", " ", pw_text_data$text)
+head(pw_text_data$text)
+# remove at(@) people
+pw_text_data$text = gsub("@\\w+", " ", pw_text_data$text)
+head(pw_text_data$text)
+# remove punctuation
+pw_text_data$text = gsub("[[:punct:]]", " ", pw_text_data$text)
+head(pw_text_data$text)
+# remove numbers
+pw_text_data$text = gsub("[[:digit:]]", " ", pw_text_data$text)
+head(pw_text_data$text)
+# remove html links
+pw_text_data$text = gsub("http\\w+", " ", pw_text_data$text)
+head(pw_text_data$text)
+# remove unnecessary spaces
+#pw_text_data$text = gsub("[ \t]{2,}", "", pw_text_data$text)
+pw_text_data$text= rm_white(pw_text_data$text)
+head(pw_text_data$text)
+#removes leading and trailing spaces
+pw_text_data$text = gsub("^\\s+|\\s+$", "", pw_text_data$text)
+head(pw_text_data$text)
+#checking row count
+head(pw_text_data)
+View(pw_text_data)
+
+```
+
+Loading lexicons 
+```{r}
+library(tidytext)
+sentiments
+get_sentiments("afinn") #afinn gives scores in -5 to 5 range
+get_sentiments("bing") #bing lexicon gives only positive or negative sentiments no emotions
+get_sentiments("nrc") #gives emotion as well as sentiment
+
+```
+
+Converting to dataframe
+```{r}
+#Loading necessary libraries
+library(dplyr)
+#loading pw_text_data in to other variable as a dataframe
+pw<-as.data.frame(pw_text_data)
+colnames(pw)
+nrow(pw)
+View(pw)
+
+```
+
+
+Tokenizing twitter data
+```{r}
+View(pw)
+library(qdap)
+#tokenizing data grouped on created_date
+pw_tokens<- pw %>% group_by(created_date) %>% mutate(linenumber = row_number()) %>% as.vector() %>% ungroup() %>% unnest_tokens(word, text) 
+head(pw_tokens,10)
+nrow(pw_tokens)
+View(pw_tokens)
+#typeof(pw_d)
+```
+Selecting joy and positive emotion words from nrc lexicon
+```{r}
+nrc_joy_pos <- get_sentiments("nrc") %>%
+  filter(sentiment %in% c("joy","positive"))
+head(nrc_joy_pos)
+
+```
+
+
+Joining words of selected emotion with twitter data variable
+```{r}
+emo<- pw_tokens %>%  inner_join(nrc_joy_pos) %>%
+  count(word, sort = TRUE)  #sorting emotions based on word count in desc order
+
+head(emo)
+
+View(emo)
+```
+Plot top 10 words with selected emotions
+```{r}
+library(ggplot2)
+emo_top10<-head(emo,10)
+ggplot(emo_top10)+ggtitle("Top 10 words by frequency with emotion joy and positive")+geom_bar(aes(reorder(word,n),n,fill=word),stat='identity')+xlab("word")+ylab("frequency")
+
+#word art is the most frequent word under emotion joy or positive
+```
+Most frequent emotion in the twitter data selected using nrc lexicon
+```{r}
+top_emo<- pw_tokens %>%  inner_join(get_sentiments("nrc")) %>%
+  count(sentiment, sort = TRUE)  #sorting emotions based on word count in desc order
+
+head(top_emo)
+
+
+```
+Visualizing most frequent emotion in nrc 
+```{r}
+ggplot(top_emo)+ggtitle("Most frequent emotion in nrc for selected twitter data")+geom_bar(aes(reorder(sentiment,n),n,fill=sentiment),stat='identity')+xlab("sentiment")+ylab("frequency")
+
+#from the plot , postive emotion is the most frequent emotion in the twitter data from nrc lexicon
+
+```
+
+Using bing lexicon to obtain sentiment as difference between positive and negative
+```{r}
+#loading library
+library(tidyr)
+bing_pw <- pw_tokens %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(created_date, index = linenumber %/% 8, sentiment) %>%
+  spread(sentiment, n, fill = 0) %>%
+  mutate(sentiment = positive - negative,method="BING")
+
+head(bing_pw)
+View(bing_pw)
+unique(bing_pw$created_date)
+```
+
+Plotting results of bing lexicon on twitter data field
+```{r}
+library(ggplot2)
+ggplot(bing_pw, aes(index, sentiment, fill = created_date,color=index)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~created_date,  scales = "free_x")+ggtitle("Date wise sentiments based on bing lexicon")
+
+#more extreme sentiments  are seen on 14th
+```
+USING AFINN LEXICON
+```{r}
+afinn_pw <- 
+afinn <- pw_tokens %>%
+  inner_join(get_sentiments("afinn")) %>%
+  group_by(index = linenumber %/% 8) %>%
+  summarise(sentiment = sum(value)) %>%
+  mutate(method = "AFINN")
+
+head(afinn_pw)
+View(afinn_pw)
+
+```
+
+with nrc lexicon
+```{r}
+nrc_pw<- pw_tokens %>%
+    inner_join(get_sentiments("nrc") %>%
+                 filter(sentiment %in% c("positive",
+                                         "negative")) %>%
+    mutate(method = "NRC")) %>%
+  count(method, index = linenumber %/% 8, sentiment) %>%
+  spread(sentiment, n, fill = 0) %>%
+  mutate(sentiment = positive - negative)
+
+head(nrc_pw)
+```
+
+
+#uniting all lexicons 
+```{r}
+#appending all rows from 3 lexicons in to single entity and using it to plot
+bind_rows(bing_pw,afinn_pw,nrc_pw) %>%
+  ggplot(aes(index, sentiment, fill = method)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~method, ncol = 1, scales = "free_y")+ggtitle("Lexicon wise sentiment")
+```
+
+COUNT OF SENTIMENT WORDS IN EACH LEXICON
+```{r}
+
+#nrc
+get_sentiments("nrc") %>%
+  filter(sentiment %in% c("positive",
+                          "negative")) %>%
+  count(sentiment)
+#bing
+get_sentiments("bing") %>%
+  count(sentiment)
+head(afinn)
+#afinn
+get_sentiments("afinn") %>% 
+  count(value)
+```
+
+
+Most Common Positive and Negative Words in data using bing lexicon
+```{r}
+bing_word_counts <- pw_tokens %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(word, sentiment, sort = TRUE) %>%
+  ungroup()
+
+bing_word_counts
+```
+
+
+Visualizing the above words
+```{r}
+bing_word_counts %>%
+  group_by(sentiment) %>%
+  top_n(10) %>%
+  ungroup() %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(word, n, fill = sentiment)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~sentiment, scales = "free_y") +
+  labs(y = "Contribution to sentiment(in terms of frequency)",
+       x = "words") +
+  coord_flip() +geom_text(aes(label=n))+ggtitle("Visualizing most common +ve and -ve words under bing lexicon in current twitter data")
+
+
+```
+
+  
+Wordclouds
+```{r}
+library(wordcloud)
+pw_tokens %>%
+  anti_join(stop_words) %>%
+  count(word) %>%
+  with(wordcloud(word, n, max.words = 150,scale=c(4,0.5),min.freq=5,random.order = FALSE,colors=brewer.pal(n=6,name="Dark2")))#setting max words limit to 150 , minimum freq to 5
+```
+###########
+8)
+
+---word 'art' is more frequently seen
+---'positive' is the most frequent emotion
+---more extreme interactions seen on 14th december with highest and lowest sentiment values 
+---most common positive sentiment is love followed by beautiful and negative is  wrong followed by suicide
+---most frequent term from word cloud is 'woman' which is our key word or hashtag to pull data from twitter
+---we see higher sentiment values in afinn lexicon compared to other two
+
+#############
+9) from new word or topic taken 'woman' and old topic on forbespowerwomen/powerwomen we see different observations interms of most frequent sentiment term in both cases
+but most freq emotion is positive in both cases
+also afinn giving highest values in both cases
+word cloud in previous case has more variation interms of frequency but here apart from 'woman' all others look equally frequent.
+
+#####################
+10)topic modelling helped me in understand how sub topics in a given chunk of data can be pulled out and how we can decide the most probable terms in each topic under different k value cases an to understand how different topics are differentiating topics interms of context by chossing differnt terms with differnt probability under each topic under each k. It helped to attain optimised way to choose k value and most freq topic/term based on its word topic probability.

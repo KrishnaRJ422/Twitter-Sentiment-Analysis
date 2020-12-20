@@ -1,0 +1,318 @@
+---
+title: "Sentiment_Analysis_Text_mining"
+author: "KRISHNA J"
+date: "09/12/2020"
+output:
+  word_document: default
+  html_document: default
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Establishing connection with twitter api using authorized developer access
+```{r}
+#Loading necessary libraries
+library(rtweet)
+library(ROAuth)
+library(twitteR)
+library(RCurl)
+library(rtweet)
+#setting twitter authentication
+setup_twitter_oauth(' ', 
+                      ' '
+                    ,access_token=' ', 
+                    access_secret=' ') #access tokens made blank due to confidentiality
+
+```
+
+Fetching tweet data using twitter handle on topic Power Women list released by Forbes
+```{r}
+#considering English tweets since 2020 Dec 1st without retweets(RT) setting maximum limit to number of tweets as 1500 up until dec 14th.
+
+
+power_tweets <- searchTwitter("#PowerWomen OR  #forbesPowerWomen -RT", n = 1500,lang='en',since='2020-12-01',until='2020-12-14')
+typeof(power_tweets)
+#coverting list to dataframe
+df_forbes_women <- twListToDF(power_tweets)
+#viewing data
+View(df_forbes_women)
+#viewing created dates in data
+View(unique(df_forbes_women$created))
+#number of rows in data
+nrow(df_forbes_women)
+#writing data to csv file in local
+write.csv(df_forbes_women, "C:/Users/krish/Downloads/forbes_powerfulwomen_data.csv")
+#reading same file in to r again for sentiment analysis
+pw_data<-data.frame(read.csv("C:/Users/krish/Downloads/forbes_powerfulwomen_data.csv"))
+#number of rows in data
+nrow(pw_data)
+#viewing data
+View(pw_data)
+#column names
+colnames(pw_data)
+#top 6 rows
+head(pw_data$text)
+#type of data
+typeof(pw_data)
+
+```
+
+```{r}
+#loading text,created fields data to a seperate variable
+pw_text1<- pw_data[,c("text","created")]
+#type
+typeof(pw_text1)
+#unique values of created field
+View(unique(pw_text1$created))
+#splitting 'created' field data which is in timestamp format to date format
+library(stringr)
+pw_text1$created_date<- stringr::str_split_fixed(pw_text1$created," ",2)[,1]
+#view data
+View(pw_text1)
+#view date data which is stored in to created time
+View(pw_text1$created_date)
+pw_text_data<- pw_text1[,c("text","created_date")]
+head(pw_text_data)
+unique(pw_text1$created_date)
+```
+
+Pre-processing data(text field) to perform sentiment analysis
+```{r}
+#Loading necessary libraries
+library(rtweet)
+library(qdapRegex)
+#remove urls in text field
+pw_text_data$text <-rm_twitter_url(pw_text_data$text)
+head(pw_text_data$text)
+#remove spl chars
+pw_text_data$text <- gsub("[^A-Za-z0-9]", " ",pw_text_data$text)
+head(pw_text_data$text)
+# remove retweet entities
+pw_text_data$text = gsub("(RT|via)((?:\\b\\W*@\\w+)+)", " ", pw_text_data$text)
+head(pw_text_data$text)
+# remove at(@) people
+pw_text_data$text = gsub("@\\w+", " ", pw_text_data$text)
+head(pw_text_data$text)
+# remove punctuation
+pw_text_data$text = gsub("[[:punct:]]", " ", pw_text_data$text)
+head(pw_text_data$text)
+# remove numbers
+pw_text_data$text = gsub("[[:digit:]]", " ", pw_text_data$text)
+head(pw_text_data$text)
+# remove html links
+pw_text_data$text = gsub("http\\w+", " ", pw_text_data$text)
+head(pw_text_data$text)
+# remove unnecessary spaces
+#pw_text_data$text = gsub("[ \t]{2,}", "", pw_text_data$text)
+pw_text_data$text= rm_white(pw_text_data$text)
+head(pw_text_data$text)
+#removes leading and trailing spaces
+pw_text_data$text = gsub("^\\s+|\\s+$", "", pw_text_data$text)
+head(pw_text_data$text)
+#checking row count
+head(pw_text_data)
+View(pw_text_data)
+
+```
+
+Loading lexicons 
+```{r}
+library(tidytext)
+sentiments
+get_sentiments("afinn") #afinn gives scores in -5 to 5 range
+get_sentiments("bing") #bing lexicon gives only positive or negative sentiments no emotions
+get_sentiments("nrc") #gives emotion as well as sentiment
+
+```
+
+Converting to dataframe
+```{r}
+#Loading necessary libraries
+library(dplyr)
+#loading pw_text_data in to other variable as a dataframe
+pw<-as.data.frame(pw_text_data)
+colnames(pw)
+nrow(pw)
+View(pw)
+
+```
+
+
+Tokenizing twitter data
+```{r}
+View(pw)
+library(qdap)
+#tokenizing data grouped on created_date
+pw_tokens<- pw %>% group_by(created_date) %>% mutate(linenumber = row_number()) %>% as.vector() %>% ungroup() %>% unnest_tokens(word, text) 
+head(pw_tokens,10)
+nrow(pw_tokens)
+View(pw_tokens)
+#typeof(pw_d)
+```
+Selecting joy and positive emotion words from nrc lexicon
+```{r}
+nrc_joy_pos <- get_sentiments("nrc") %>%
+  filter(sentiment %in% c("joy","positive"))
+head(nrc_joy_pos)
+
+```
+
+
+Joining words of selected emotion with twitter data variable
+```{r}
+emo<- pw_tokens %>%  inner_join(nrc_joy_pos) %>%
+  count(word, sort = TRUE)  #sorting emotions based on word count in desc order
+
+head(emo)
+
+View(emo)
+```
+Plot top 10 words with selected emotions
+```{r}
+library(ggplot2)
+emo_top10<-head(emo,10)
+ggplot(emo_top10)+ggtitle("Top 10 words by frequency with emotion joy and positive")+geom_bar(aes(reorder(word,n),n,fill=word),stat='identity')+xlab("word")+ylab("frequency")
+
+#word president is the most frequent word under emotion joy or positive
+```
+Most frequent emotion in the twitter data selected using nrc lexicon
+```{r}
+top_emo<- pw_tokens %>%  inner_join(get_sentiments("nrc")) %>%
+  count(sentiment, sort = TRUE)  #sorting emotions based on word count in desc order
+
+head(top_emo)
+
+
+```
+Visualizing most frequent emotion in nrc 
+```{r}
+ggplot(top_emo)+ggtitle("Most frequent emotion in nrc for selected twitter data")+geom_bar(aes(reorder(sentiment,n),n,fill=sentiment),stat='identity')+xlab("sentiment")+ylab("frequency")
+
+#from the plot , postive emotion is the most frequent emotion in the twitter data from nrc lexicon
+
+```
+
+Using bing lexicon to obtain sentiment as difference between positive and negative
+```{r}
+#loading library
+library(tidyr)
+bing_pw <- pw_tokens %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(created_date, index = linenumber %/% 8, sentiment) %>%
+  spread(sentiment, n, fill = 0) %>%
+  mutate(sentiment = positive - negative,method="BING")
+
+head(bing_pw)
+View(bing_pw)
+unique(bing_pw$created_date)
+```
+
+Plotting results of bing lexicon on twitter data field
+```{r}
+library(ggplot2)
+ggplot(bing_pw, aes(index, sentiment, fill = created_date,color=index)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~created_date,  scales = "free_x")+ggtitle("Date wise sentiments based on bing lexicon")
+
+#since the list of forbes powerful women is released on dec 8th we can see more activity from 8th of dec as interactions counts increases from then
+```
+USING AFINN LEXICON
+```{r}
+afinn_pw <- 
+afinn <- pw_tokens %>%
+  inner_join(get_sentiments("afinn")) %>%
+  group_by(index = linenumber %/% 8) %>%
+  summarise(sentiment = sum(value)) %>%
+  mutate(method = "AFINN")
+
+head(afinn_pw)
+View(afinn_pw)
+
+```
+
+with nrc lexicon
+```{r}
+nrc_pw<- pw_tokens %>%
+    inner_join(get_sentiments("nrc") %>%
+                 filter(sentiment %in% c("positive",
+                                         "negative")) %>%
+    mutate(method = "NRC")) %>%
+  count(method, index = linenumber %/% 8, sentiment) %>%
+  spread(sentiment, n, fill = 0) %>%
+  mutate(sentiment = positive - negative)
+
+head(nrc_pw)
+```
+
+
+#uniting all lexicons 
+```{r}
+#appending all rows from 3 lexicons in to single entity and using it to plot
+bind_rows(bing_pw,afinn_pw,nrc_pw) %>%
+  ggplot(aes(index, sentiment, fill = method)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~method, ncol = 1, scales = "free_y")+ggtitle("Lexicon wise sentiment")
+```
+
+COUNT OF SENTIMENT WORDS IN EACH LEXICON
+```{r}
+
+#nrc
+get_sentiments("nrc") %>%
+  filter(sentiment %in% c("positive",
+                          "negative")) %>%
+  count(sentiment)
+#bing
+get_sentiments("bing") %>%
+  count(sentiment)
+head(afinn)
+#afinn
+get_sentiments("afinn") %>% 
+  count(value)
+```
+
+
+Most Common Positive and Negative Words in data using bing lexicon
+```{r}
+bing_word_counts <- pw_tokens %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(word, sentiment, sort = TRUE) %>%
+  ungroup()
+
+bing_word_counts
+```
+
+
+Visualizing the above words
+```{r}
+bing_word_counts %>%
+  group_by(sentiment) %>%
+  top_n(10) %>%
+  ungroup() %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(word, n, fill = sentiment)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~sentiment, scales = "free_y") +
+  labs(y = "Contribution to sentiment(in terms of frequency)",
+       x = "words") +
+  coord_flip() +geom_text(aes(label=n))+ggtitle("Visualizing most common +ve and -ve words under bing lexicon in current twitter data")
+
+
+
+```
+
+  
+Wordclouds
+```{r}
+library(wordcloud)
+pw_tokens %>%
+  anti_join(stop_words) %>%
+  count(word) %>%
+  with(wordcloud(word, n, max.words = 150,scale=c(2,0.5),min.freq=5,random.order = FALSE,colors=brewer.pal(n=8,name="Dark2")))#setting max words limit to 150 , minimum freq to 5
+```
+
+# Code reference: https://www.tidytextmining.com/topicmodeling.html
+
