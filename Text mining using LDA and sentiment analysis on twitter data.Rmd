@@ -1,5 +1,5 @@
 ---
-title: "Text Mining Final Exam code"
+title: "Text Mining End Exam code"
 author: "Krishna J"
 date: "16/12/2020"
 output: word_document
@@ -133,7 +133,7 @@ nrow(DTM)
 #1346
 ```
 
-Since the DTM is created from the source data, let us proceed with LDA(linear discriminant analysis) a technique which helps us to identify different topics in the dataset
+Since the DTM is created from the source data, let us proceed with LDA(latent dirichlet allocation) a technique which helps us to identify different topics in the dataset
 ###############################################
 1)	Use 2, 6, 10 as the number of topics and create three different LDA models based on these K values
 ################################################
